@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>ListIt!</title>
+    <meta name="description"
+      content="Edit, sort and share your lists of everything.">
+    <style>/*<!--*/
+      body {
+        color: #777;
+        font-family: sans-serif;
+        margin: 0;
+      }
+
+      #compare {
+        position: absolute;
+        top: 1.5em;
+        left: 20%;
+        right: 20%;
+        padding: .3em;
+        font-size: 2.5em;
+        border: solid 1px black;
+        background: white;
+        text-align: center;
+      }
+
+      #question {
+        padding-bottom: .5em;
+      }
+
+      #or {
+        font-size: .3em;
+        padding: .5em;
+      }
+
+      #mover {
+        text-align: center;
+        line-height: .7em;
+        position: absolute;
+        display: none;
+        cursor: default;
+      }
+
+      #mover div:hover {
+        color: #aaa;
+      }
+
+      .placeholder {
+        color: #ccc;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .icon {
+        height: 1.5em;
+        vertical-align: bottom;
+      }
+
+      #toolbar, .choice_buttons, .choice_buttons ul {
+        padding-left: 0;
+      }
+
+      #toolbar {
+        cursor: default;
+        margin-top: 0;
+        margin-bottom: 0;
+        background: #fcfcfc;
+        border-bottom: solid 1px #999;
+      }
+
+      #toolbar > li {
+        display: inline-block;
+        vertical-align: top;
+        height: 3em;
+        margin-left: 0;
+        padding: .6em;
+        border-right: solid 1px #ddd;
+      }
+
+      .choice_buttons {
+        display: inline-block;
+        margin: 0;
+      }
+
+      .choice_buttons dd {
+        margin-top: .5em;
+        margin-left: 0;
+        font-size: .8em;
+        visibility: hidden;
+      }
+
+      li:hover .choice_buttons dd {
+        visibility: inherit;
+      }
+
+      .choice_buttons li {
+        display: inline-block;
+        vertical-align: top;
+      }
+
+      .choice_buttons li + li {
+        margin-left: .5em;
+      }
+
+      #toolbar a {
+        text-decoration: none;
+        color: inherit;
+      }
+
+      #toolbar a:hover {
+        color: #444;
+      }
+
+      #editor {
+        margin: 1em;
+        outline: none;
+      }
+
+      #insert_link {
+        cursor: auto;
+        border: solid 1px #aaa;
+        background-color: white;
+      }
+
+      #insert_link:focus {
+        visibility: visible;
+      }
+
+      h1 {
+        font-size: 5em;
+        margin: 0;
+      }
+
+      li > .help {
+        visibility: hidden;
+      }
+
+      li:hover > .help {
+        visibility: inherit;
+      }
+
+      .item_image, .item_text {
+        display: inline-block;
+        vertical-align: top;
+      }
+
+      .item_links {
+        margin-left: 1em;
+      }
+
+      .item_comment {
+        display: block;
+        color: #aaa;
+        font-size: .9em;
+        visibility: hidden;
+        text-align: left;
+      }
+
+      li:hover .item_comment,
+      h1:hover .item_comment,
+      a:hover .item_comment,
+      div:focus .item_comment {
+        visibility: inherit;
+      }
+
+      .link, .image {
+        padding: .1em;
+        display: inline-block;
+      }
+
+      .remove {
+        visibility: hidden;
+        cursor: pointer;
+        margin-left: .1em;
+      }
+
+      h1 .link:hover, h1 .image:hover,
+      li .link:hover, li .image:hover {
+        outline-style: auto;
+        outline-color: #aaa;
+      }
+
+      li .link:hover .remove,
+      li .image:hover .remove,
+      h1 .link:hover .remove,
+      h1 .image:hover .remove {
+        visibility: inherit;
+      }
+
+      .link img {
+        border: 0;
+        height: 1.2em;
+        vertical-align: top;
+      }
+
+      .image-frame {
+        display: inline-block;
+        margin-right: 0.5em;
+        width: 2em;
+        text-align: center;
+      }
+
+      .image img {
+        max-width: 2em;
+        max-height: 2em;
+        vertical-align: top;
+      }
+
+      ol {
+        font-size: 2.5em;
+        color: #aaa;
+        margin: 0;
+        padding-left: 2.5em;
+      }
+
+      ol > li {
+        margin-bottom: .5em;
+      }
+
+      .item_image {
+        font-size: 0.5em;
+      }
+
+      .item_text {
+        font-size: 0.5em;
+        color: #555;
+      }
+
+      .item_comment {
+        font-size: 0.6em;
+      }
+    /*-->*/</style>
+    <script src="base64.js"></script>
+    <script src="lzw.js"></script>
+    <script>//<!--
+
+      var editor_node;
+      var h1_node;
+      var ol_node;
+
+      var compressed_data = "";
+
+      function append_line(lines, text) {
+        var new_lines = text.split("\n");
+        if (lines.length != 0) {
+          var first_line = new_lines.shift();
+          var line = lines[lines.length - 1];
+          lines[lines.length - 1] += first_line;
+        }
+        for (var i = 0; i < new_lines.length; i++) {
+          var new_line = new_lines[i];
+          lines.push(new_line);
+        }
+      }
+
+      function is_span_of_class(node, className) {
+        return node.tagName == "SPAN" && node.getAttribute("CLASS") == className;
+      }
+
+      function is_placeholder(node) {
+        return is_span_of_class(node, "placeholder");
+      }
+
+      function append_node(lines, node) {
+        if (node.nodeType == Node.TEXT_NODE) {
+          append_line(lines, node.nodeValue);
+        }
+        else if (node.nodeType == Node.ELEMENT_NODE) {
+          if (!is_placeholder(node)) {
+            if (node.tagName == "LI" || node.tagName == "BR" ||node.tagName == "P" || node.tagName == "H1" || node.tagName == "H2") {
+              if (lines.length == 0 || lines[lines.length - 1] != "") {
+                lines.push("");
+              }
+            }
+            for (var i = 0; i < node.childNodes.length; i++) {
+              append_node(lines, node.childNodes[i]);
+            }
+          }
+        }
+      }
+
+      function clear_node(node) {
+        while (node.hasChildNodes()) {
+          node.removeChild(node.firstChild);
+        }
+      }
+
+      function new_text_node(text) {
+        if (!text || text.match(/^\s+$/)) {
+          text = "";
+        }
+        return document.createTextNode(text);
+      }
+
+      function new_span_node(text, className) {
+        var span_node = document.createElement("SPAN");
+        span_node.setAttribute("class", className);
+        span_node.appendChild(new_text_node(text));
+        return span_node;
+      }
+
+      function remove_urls(text, removed_urls) {
+        if (!text) {
+          return "";
+        }
+        var urls = new RegExp("((https?://|mailto:)([-A-Za-z0-9@:/=+&#._%,?])*)|([A-Za-z0-9+.-_%]+@[A-Za-z0-9+.-_%]+)", "g");
+        var new_removed_urls = text.match(urls);
+        if (new_removed_urls) {
+          text = text.replace(urls, "");
+          for (var i = 0; i < new_removed_urls.length; i++) {
+            removed_urls.push(new_removed_urls[i]);
+          }
+        }
+        return text;
+      }
+
+      function extract_contents_node(node) {
+        if (node.childNodes.length != 2) {
+          return null;
+        }
+        var image = node.childNodes[0];
+        var text = node.childNodes[1];
+        if (text.childNodes.length != 3) {
+          return null;
+        }
+        var contents = text.childNodes[0];
+        var links = text.childNodes[1];
+        var comment = text.childNodes[2];
+        if (!is_span_of_class(image, "item_image") || !is_span_of_class(text, "item_text") || !is_span_of_class(contents, "item_contents") || !is_span_of_class(links, "item_links") || !is_span_of_class(comment, "item_comment")) {
+          return null;
+        }
+        if (contents.childNodes.length == 1) {
+        }
+        else if (contents.childNodes.length == 2 && is_placeholder(contents.childNodes[1])) {
+        }
+        else {
+          return null;
+        }
+        var edit = contents.childNodes[0];
+        if (!is_span_of_class(edit, "item_edit")) {
+          return null;
+        }
+        return {
+          image: image,
+          text: text,
+          contents: contents,
+          edit: edit,
+          links: links,
+          comment: comment
+        };
+      }
+
+      function add_url(node, url) {
+        var contents = extract_contents_node(node);
+        if (contents == null) {
+          return;
+        }
+        if (!url.match(new RegExp("^https?://|^mailto:"))) {
+          url = "mailto:" + url;
+        }
+        else if (url.match(new RegExp("https?://.*/[^/]*[.](jpg|png|gif|svg)"))) {
+          var img_frame_node = document.createElement("SPAN");
+          clear_node(contents.image);
+          var block_node = contents.image.appendChild(make_block_node(url, img_frame_node), node.firstChild);
+          block_node.setAttribute("class", "image");
+          img_frame_node.setAttribute("class", "image-frame");
+          var img_node = img_frame_node.appendChild(document.createElement("IMG"));
+          img_node.setAttribute("src", url);
+          img_node.setAttribute("alt", "image");
+          img_node.setAttribute("title", url);
+        }
+        else {
+          var a_node = document.createElement("A");
+          var block_node = contents.links.appendChild(make_block_node(url, a_node));
+          block_node.setAttribute("class", "link");
+          a_node.setAttribute("href", url);
+          var img_node = a_node.appendChild(document.createElement("IMG"));
+          if (url.match(/^mailto:/)) {
+            img_node.setAttribute("src", "mail.svg");
+          }
+          else {
+            img_node.setAttribute("src", "web.svg");
+            var base_url = url.match("^https?://[^/]+");
+            if (base_url && base_url.length > 0) {
+              var img = new Image();
+              img.onload = function() {
+                img_node.src = img.src;
+              }
+              img.src = base_url[0] + "/favicon.ico";
+            }
+          }
+          img_node.setAttribute("alt", "link");
+          img_node.setAttribute("title", url);
+          contents.links.appendChild(document.createElement("span"));
+        }
+      }
+
+      function append_contents_node(node, text) {
+        var removed_urls = new Array();
+        text = remove_urls(text, removed_urls);
+        text = text.replace(/^\s+|\s+$/g, "");
+        var span_image = node.appendChild(document.createElement("SPAN"));
+        span_image.setAttribute("CLASS", "item_image");
+        var span_text = node.appendChild(document.createElement("SPAN"));
+        span_text.setAttribute("CLASS", "item_text");
+        var span_contents = span_text.appendChild(document.createElement("SPAN"));
+        span_contents.setAttribute("CLASS", "item_contents");
+        var span_edit = span_contents.appendChild(document.createElement("SPAN"));
+        span_edit.setAttribute("CLASS", "item_edit");
+        var span_links = span_text.appendChild(document.createElement("SPAN"));
+        span_links.setAttribute("CLASS", "item_links");
+        var span_comment = span_text.appendChild(document.createElement("SPAN"));
+        span_comment.setAttribute("CLASS", "item_comment");
+        span_comment.item = span_image;
+        var par_index = text.indexOf("(");
+        if (par_index >= 0) {
+          span_edit.appendChild(new_text_node(text.substr(0, par_index)));
+          span_comment.appendChild(new_text_node(text.substr(par_index)));
+        }
+        else {
+          span_edit.appendChild(new_text_node(text));
+        }
+        for (var i = 0; i < removed_urls.length; i++) {
+          add_url(node, removed_urls[i]);
+        }
+      }
+
+      function new_li_node(text) {
+        var li_node = document.createElement("LI");
+        append_contents_node(li_node, text);
+        return li_node;
+      }
+
+      function make_structure(lines) {
+        h1_node = editor_node.appendChild(document.createElement("H1"));
+        append_contents_node(h1_node, lines[0]);
+        ol_node = editor_node.appendChild(document.createElement("OL"));
+        var li_node;
+        if (lines.length > 1) {
+          for (var i = 1; i < lines.length; i++) {
+            ol_node.appendChild(new_li_node(lines[i]));
+          }
+        }
+        else {
+          ol_node.appendChild(new_li_node());
+        }
+      }
+
+      function check_hash() {
+        var value = window.location.hash.substring(1);
+        if (value != compressed_data) {
+          compressed_data = value;
+          var data = decodeURIComponent(lzw_decode(Base64.decode(value)));
+          clear_node(editor);
+          var lines = data.split("\n");
+          make_structure(lines);
+          make_placeholders();
+        }
+      }
+
+      function new_placeholder(node, text) {
+        var placeholder = node.appendChild(document.createElement("span"));
+        placeholder.setAttribute("contenteditable", "false");
+        placeholder.setAttribute("class", "placeholder");
+        placeholder.appendChild(document.createTextNode(text));
+        return placeholder;
+      }
+
+      function make_placeholder(node, text) {
+        var contents = extract_contents_node(node);
+        if (contents == null) {
+          return null;
+        }
+        var textContent = contents.edit.textContent;
+        if (textContent == "") {
+          new_placeholder(contents.contents, text);
+        }
+      }
+
+      function make_placeholders() {
+        make_placeholder(h1_node, "No title given.");
+        for (var i = 0; i < ol_node.childNodes.length; i++) {
+          make_placeholder(ol_node.childNodes[i], "empty item");
+        }
+      }
+
+      function select(node, beginning) {
+        range = document.createRange();
+        range.selectNodeContents(node);
+        range.collapse(beginning);
+        selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      function insert_lines_before(lines, child) {
+        for (var i = 0; i < lines.length; i++) {
+          select(ol_node.insertBefore(new_li_node(lines[i]), child), false);
+        }
+      }
+
+      function append_lines(lines) {
+        for (var i = 0; i < lines.length; i++) {
+          select(ol_node.appendChild(new_li_node(lines[i])), false);
+        }
+      }
+
+      function get_text_node(node, new_lines) {
+        if (node.childNodes.length == 1 && node.childNodes[0].nodeType == Node.TEXT_NODE) {
+          return node.childNodes[0];
+        }
+        else {
+          append_node(new_lines, node);
+          clear_node(node);
+          var text = new_lines.shift();
+          var text_node = new_text_node(text);
+          node.appendChild(text_node);
+          return text_node;
+        }
+      }
+
+      function fix_contents(child, new_lines) {
+        var next_new_lines = new Array();
+        var text_node = get_text_node(child, next_new_lines);
+        if (new_lines.length == 0) {
+        }
+        else {
+          var line = new_lines.shift();
+          if (new_lines.length == 1) {
+            if (!is_zero_width(line)) {
+              text_node.nodeValue = line + text_node.nodeValue;
+            }
+          }
+          else {
+            append_node(new_lines, text_node);
+            text_node.nodeValue = line;
+          }
+        }
+        for (var i = 0; i < next_new_lines.length; i++) {
+          new_lines.push(next_new_lines[i]);
+        }
+      }
+
+      function make_block_node(hidden, contents) {
+        var block_node = document.createElement("SPAN");
+        block_node.setAttribute("contenteditable", "false");
+        block_node.setAttribute("class", "link");
+        block_node.appendChild(contents);
+        var hidden_node = block_node.appendChild(document.createElement("SPAN"));
+        hidden_node.setAttribute("style", "font-size: 0px");
+        hidden_node.appendChild(document.createTextNode(" " + hidden + " "));
+        var remove_node = block_node.appendChild(document.createElement("SPAN"));
+        remove_node.setAttribute("class", "remove");
+        var image_remove_node = remove_node.appendChild(document.createElement("IMG"));
+        image_remove_node.src = "delete.svg";
+        image_remove_node.setAttribute("style", "height: 0.5em;");
+        remove_node.onclick = function() { block_node.parentNode.removeChild(block_node); };
+        return block_node;
+      }
+
+      function contains_text(node) {
+        return node.childNodes.length == 1 && node.childNodes[0].nodeType == Node.TEXT_NODE && !node.childNodes[0].nodeValue.match(/^\s+$/);
+      }
+
+      function remove_urls_node(node, removed_urls) {
+        if (window.getSelection().focusNode != node) {
+          node.nodeValue = remove_urls(node.nodeValue, removed_urls);;
+        }
+      }
+
+      function check_links(links) {
+        var previous = null;
+        for (var i = 0; i < links.childNodes.length; i++) {
+          var child = links.childNodes[i];
+          if (child.nodeType == Node.ELEMENT_NODE && child.getAttribute("contenteditable") == "false") {
+          }
+          else {
+            return false;
+          }
+          i++;
+          if (i == links.childNodes.length) {
+            links.removeChild(links.childNodes[i - 1]);
+            if (previous) {
+              select(previous, false);
+            }
+            return false;
+          }
+          child = links.childNodes[i];
+          if (child.tagName == "SPAN" && child.getAttribute("contenteditable") == null) {
+            if (child.hasChildNodes()) {
+              return false
+            }
+          }
+          else {
+            links.removeChild(links.childNodes[i - 1]);
+            if (previous) {
+              select(previous, false);
+            }
+            return false;
+          }
+          previous = child;
+        }
+        return true;
+      }
+
+      function fix_node(node) {
+        var contents = extract_contents_node(node);
+        var new_lines = new Array();
+        if (contents == null) {
+          append_node(new_lines, node);
+          clear_node(node);
+          var text = new_lines.shift();
+          append_contents_node(node, text);
+          select(node.childNodes[1].childNodes[0].childNodes[0], false);
+        }
+        else {
+          if (contents.contents.childNodes.length == 2 && is_placeholder(contents.contents.childNodes[1])) {
+            contents.contents.removeChild(contents.contents.childNodes[1]);
+          }
+          if (!contains_text(contents.edit)) {
+            append_node(new_lines, contents.edit);
+            clear_node(contents.edit);
+            var text = new_lines.shift();
+            contents.edit.appendChild(new_text_node(text));
+            select(contents.edit, false);
+          }
+          function append_contents(subnode) {
+            append_node(new_lines, subnode);
+            clear_node(subnode);
+            var text = new_lines.shift();
+            if (text && text != "") {
+              contents.edit.childNodes[0].nodeValue += text;
+              select(contents.edit, false);
+            }
+          }
+          if (!check_links(contents.links)) {
+            append_contents(contents.links);
+          }
+          if (contents.comment.hasChildNodes() && (!contains_text(contents.comment) || contents.comment.childNodes[0].nodeValue[0] != "(")) {
+            append_contents(contents.comment);
+          }
+          var text = contents.edit.childNodes[0].nodeValue;
+          var par_index = text.indexOf("(");
+          if (par_index >= 0) {
+            contents.edit.childNodes[0].nodeValue = text.substr(0, par_index);
+            var comment = text.substr(par_index);
+            if (contents.comment.hasChildNodes()) {
+              contents.comment.childNodes[0].nodeValue = comment + contents.comment.childNodes[0].nodeValue;
+            }
+            else {
+              contents.comment.appendChild(document.createTextNode(comment));
+            }
+            select(contents.comment, false);
+          }
+          var removed_urls = new Array();
+          remove_urls_node(contents.edit.childNodes[0], removed_urls);
+          if (contents.comment.hasChildNodes()) {
+            remove_urls_node(contents.comment.childNodes[0], removed_urls);
+          }
+          for (var i = 0; i < removed_urls.length; i++) {
+            add_url(node, removed_urls[i]);
+          }
+        }
+        return new_lines;
+      }
+
+      function get_data(node) {
+        return node.textContent;
+      }
+
+      var site_url = window.location.href;
+
+      var hash_pos = site_url.indexOf("#");
+
+      if (hash_pos >= 0) {
+        site_url = site_url.substr(0, hash_pos);
+      }
+
+      var last_focus;
+
+      function fix_structure() {
+        last_focus = window.getSelection().focusNode;
+        if (editor_node.childNodes.length == 2
+          && editor_node.childNodes[0].tagName == "H1"
+          && editor_node.childNodes[1].tagName == "OL") {
+          h1_node = editor_node.childNodes[0];
+          ol_node = editor_node.childNodes[1];
+          var nodes_to_delete = new Array();
+          var previous = h1_node;
+          for (var i = 0; i < ol_node.childNodes.length; i++) {
+            var child = ol_node.childNodes[i];
+            if (child.childNodes.length == 1 && is_span_of_class(child.childNodes[0], "item_text") && child.childNodes[0].childNodes.length == 3
+&& child.childNodes[0].childNodes[2].item != previous.childNodes[0]
+|| child.childNodes.length == 1 && is_span_of_class(child.childNodes[0], "item_text") && child.childNodes[0].childNodes.length == 2
+&& child.childNodes[0].childNodes[1].item != previous.childNodes[0]
+|| child.childNodes.length == 2 && is_span_of_class(child.childNodes[1], "item_text") && child.childNodes[1].childNodes.length == 3
+ && is_span_of_class(child.childNodes[1].childNodes[0], "item_contents")
+ && child.childNodes[1].childNodes[0].childNodes.length == 1
+ && is_placeholder(child.childNodes[1].childNodes[0].childNodes[0])
+ && child.childNodes[1].childNodes[2].item != previous.childNodes[0]) {
+              nodes_to_delete.push(child);
+              var new_lines = new Array();
+              append_node(new_lines, child);
+              var text = new_lines.join("\n");
+              if (text != "") {
+                previous.appendChild(document.createTextNode(text));
+              }
+              select(previous, false);
+            }
+            else {
+              previous = child;
+            }
+          }
+          for (var i = 0; i < nodes_to_delete.length; i++) {
+            ol_node.removeChild(nodes_to_delete[i]);
+          }
+          var new_lines = fix_node(h1_node);
+          nodes_to_delete = new Array();
+          for (var i = 0; i < ol_node.childNodes.length; i++) {
+            var child = ol_node.childNodes[i];
+            if (child.tagName == "LI") {
+              insert_lines_before(new_lines, child);
+              new_lines = fix_node(child);
+            }
+            else {
+              append_node(new_lines, child);
+              nodes_to_delete.push(child);
+            }
+          }
+          append_lines(new_lines);
+          for (var i = 0; i < nodes_to_delete.length; i++) {
+            ol_node.removeChild(nodes_to_delete[i]);
+          }
+          if (ol_node.childNodes.length == 0) {
+            select(ol_node.appendChild(new_li_node()), false);
+          }
+        }
+        else {
+          var lines = new Array();
+          append_node(lines, editor_node);
+          clear_node(editor_node);
+          make_structure(lines);
+          select(ol_node.firstChild, false);
+        }
+        var data = "";
+        data += get_data(h1_node);
+        for (var i = 0; i < ol_node.childNodes.length; i++) {
+            data += "\n" + get_data(ol_node.childNodes[i]);
+        }
+        var h1_contents = extract_contents_node(h1_node);
+        var title = h1_contents.edit.textContent;
+        var title_node = document.getElementsByTagName('title')[0];
+        clear_node(title_node);
+        if (title != "") {
+          title += " - ";
+        }
+        title += "ListIt!";
+        title_node.appendChild(document.createTextNode(title));
+        compressed_data = Base64.encode(lzw_encode(encodeURIComponent(data)));
+        var url = encodeURIComponent(site_url + "#" + compressed_data);
+        document.getElementById("gplus").setAttribute("href", "https://plus.google.com/share?url=" + url);
+        document.getElementById("facebook").setAttribute("href", "http://www.facebook.com/sharer.php?u=" + url);
+        document.getElementById("tinyurl").setAttribute("href", "http://tinyurl.com/create.php?url=" + url);
+        history.replaceState(get_state(), "", "#" + compressed_data);
+        make_placeholders();
+      }
+
+      var mover_node;
+      var mover_up_node;
+      var mover_grip_node;
+      var mover_down_node;
+      var dragging = false;
+
+      function item_at_y(y) {
+        for (var i = 0; i < ol_node.childNodes.length; i++) {
+          var child = ol_node.childNodes[i];
+          if (child.offsetTop <= y && (!child.nextSibling || y < child.nextSibling.offsetTop)) {
+            return child;
+          }
+        }
+        return null;
+      }
+
+      function place_mover(node) {
+        if (node) {
+          var x = 10;
+          var y = node.offsetTop + 5;
+          var drag_start_y;
+          var orig_y;
+          var moved;
+          var oldmousemove;
+          function mousedown(ev) {
+            dragging = true;
+            oldmousemove = document.onmousemove;
+            document.onmousemove = mousemove;
+            moved = false;
+            drag_start_y = ev.pageY;
+            orig_y = y;
+            return false;
+          }
+          function mousemove(ev) {
+            if (dragging) {
+              mover_down_node.setAttribute("style", "");
+              mover_up_node.setAttribute("style", "");
+              if (drag_start_y != orig_y) {
+                moved = true;
+              }
+              var my = ev.pageY;
+              var y = my - drag_start_y + orig_y;
+              if (y < ol_node.firstChild.offsetTop) {
+                y = ol_node.firstChild.offsetTop;
+                my = y + drag_start_y - orig_y;
+              }
+              mover_node.setAttribute("style", "display: inherit; left: " + x + "px; top: " + y + "px;");
+              var new_node = item_at_y(my);
+              if (new_node && new_node.offsetTop > node.offsetTop) {
+                new_node = new_node.nextSibling;
+              }
+              if (new_node != node) {
+                ol_node.removeChild(node);
+                ol_node.insertBefore(node, new_node);
+              }
+              if (node.offsetTop - node.offsetHeight <= document.body.scrollTop || node.offsetTop + 2 * node.offsetHeight >= document.body.scrollTop + window.innerHeight) {
+                node.scrollIntoView();
+              }
+            }
+          }
+          mover_node.onmousedown = mousedown;
+          document.onmouseup = function () {
+            if (dragging) {
+              document.onmousemove = oldmousemove;
+              dragging = false;
+              place_mover(node);
+            }
+            return true;
+          }
+          mover_node.setAttribute("style", "display: inherit; left: " + x + "px; top: " + y + "px;");
+          if (node.previousSibling || node.nextSibling) {
+            mover_grip_node.setAttribute("style", "");
+          }
+          else {
+            mover_grip_node.setAttribute("style", "visibility: hidden;");
+          }
+          if (node.previousSibling) {
+            mover_up_node.setAttribute("style", "");
+            mover_up_node.onmouseup = function() {
+              if (moved) {
+                return true;
+              }
+              var previous = node.previousSibling;
+              node.parentNode.removeChild(node);
+              previous.parentNode.insertBefore(node, previous);
+              place_mover(previous);
+              return true;
+            }
+          }
+          else {
+            mover_up_node.setAttribute("style", "visibility: hidden;");
+          }
+          if (node.nextSibling) {
+            mover_down_node.setAttribute("style", "");
+            mover_down_node.onmouseup = function() {
+              if (moved) {
+                place_mover(node);
+                return true;
+              }
+              var next = node.nextSibling;
+              node.parentNode.removeChild(node);
+              next.parentNode.insertBefore(node, next.nextSibling);
+              place_mover(next);
+              return true;
+            }
+          }
+          else {
+            mover_down_node.setAttribute("style", "visibility: hidden;");
+          }
+        }
+        else {
+          mover_node.setAttribute("style", "");
+        }
+      }
+
+      function editor_mousemove(ev) {
+        place_mover(item_at_y(ev.pageY));
+        return true;
+      }
+
+      function watch_editor() {
+        editor_node = document.getElementById('editor');
+        mover_node = document.getElementById('mover');
+        mover_up_node = document.getElementById('mover-up');
+        mover_grip_node = document.getElementById('mover-grip');
+        mover_down_node = document.getElementById('mover-down');
+        check_hash();
+        window.setInterval(check_hash, 42);
+        fix_structure();
+        editor_node.onkeyup = fix_structure;
+        document.onmousemove = editor_mousemove;
+        editor_node.onmouseup = function() {
+          last_focus = window.getSelection().focusNode;
+          return true;
+        }
+        var insert_node = document.getElementById('insert_link');
+        var placeholder = new_placeholder(insert_node, "Paste URL here.");
+        function insert_link() {
+          if (placeholder.parentNode == insert_node) {
+            insert_node.removeChild(placeholder);
+          }
+          var url = insert_node.textContent;
+          clear_node(insert_node);
+          insert_node.appendChild(placeholder);
+          var target = last_focus;
+          while (target) {
+            if (target.tagName == "LI" || target.tagName == "H1") {
+              add_url(target, url);
+              break;
+            }
+            else {
+              target = target.parentNode;
+            }
+          }
+        }
+        insert_node.onkeypress = function(ev) {
+          if (ev.keyCode == 13) {
+            insert_link();
+            return false;
+          }
+          return true;
+        }
+        insert_node.onkeyup = function() {
+          var hasText = false;
+          for (var i = insert_node.childNodes.length - 1; i >= 0; i--) {
+            var child = insert_node.childNodes[i];
+            if (child.nodeType == Node.ELEMENT_NODE && child.tagName != "SPAN") {
+              insert_node.removeChild(child);
+            }
+            else if (!(is_placeholder(child)) && child.textContent != "") {
+              hasText = true;
+            }
+          }
+          if (hasText) {
+            if (placeholder.parentNode == insert_node) {
+              insert_node.removeChild(placeholder);
+            }
+          }
+          else {
+            if (placeholder.parentNode == null) {
+              insert_node.appendChild(placeholder);
+            }
+          }
+        }
+      }
+
+      var compare_k;
+      var a_item;
+      var b_item;
+
+      function display_compare() {
+        var compare_node = document.getElementById('compare');
+        compare_node.setAttribute("class", "");
+        var a_node = document.getElementById('a');
+        var b_node = document.getElementById('b');
+        clear_node(a_node);
+        clear_node(b_node);
+        append_contents_node(a_node, a_item.textContent);
+        append_contents_node(b_node, b_item.textContent);
+      }
+
+      function compare(i, j, k) {
+        fix_structure();
+        a_item = ol_node.childNodes[i];
+        b_item = ol_node.childNodes[j];
+        display_compare();
+        compare_k = k;
+      }
+
+      function get_state() {
+        return null;
+      }
+
+      function hide_compare() {
+        var compare_node = document.getElementById('compare');
+        compare_node.setAttribute("class", "hidden");
+      }
+
+      function compared(value) {
+        hide_compare();
+        compare_k(value);
+      }
+
+      function move(i, j) {
+        if (i == j) {
+          return;
+        }
+        var a_item = ol_node.childNodes[i];
+        var b_item = ol_node.childNodes[j];
+        ol_node.removeChild(a_item);
+        ol_node.insertBefore(a_item, b_item);
+      }
+
+      function swap(i, j) {
+        if (i == j) {
+          return;
+        }
+        var a_item = ol_node.childNodes[i];
+        var b_item = ol_node.childNodes[j];
+        var a_sibling = a_item.nextSibling;
+        if (a_sibling == b_item) {
+          ol_node.removeChild(b_item);
+          ol_node.insertBefore(b_item, a_item);
+        }
+        else {
+          ol_node.removeChild(a_item);
+          ol_node.insertBefore(a_item, b_item);
+          ol_node.removeChild(b_item);
+          if (a_sibling) {
+            ol_node.insertBefore(b_item, a_sibling);
+          }
+          else {
+            ol_node.appendChild(b_item);
+          }
+        }
+      }
+
+      function merge(i, m, j, k) {
+        if (i < m && m < j) {
+          compare(i, m, function(result) {
+            if (!result) {
+              merge(i + 1, m, j, k);
+            }
+            else {
+              move(m, i);
+              merge(i + 1, m + 1, j, k);
+            }
+          })
+        }
+        else {
+          k();
+        }
+      }
+
+      function merge_sort(i, j, k) {
+        if (i < j - 1) {
+          var m = Math.floor((i + j) / 2);
+          merge_sort(i, m, function() {
+            merge_sort(m, j, function() {
+              merge(i, m, j, k);
+            })
+          })
+        }
+        else {
+          k();
+        }
+      }
+
+      function for_cps(i, j, f, k) {
+        if (i < j) {
+          f(i, function() {
+            for_cps(i + 1, j, f, k);
+          })
+        }
+        else {
+          k();
+        }
+      }
+
+      function quicksort(i, j, k) {
+        if (i < j - 1) {
+          var m = Math.floor((i + j) / 2);
+          swap(m, j - 1);
+          var storeIndex = i;
+          for_cps(i, j - 1, function(n, k) {
+            compare(n, j - 1, function(result) {
+              if (!result) {
+                swap(n, storeIndex);
+                storeIndex++;
+              }
+              k();
+            });
+          }, function () {
+            swap(storeIndex, j - 1);
+            quick_sort(i, storeIndex, function() {
+              quick_sort(storeIndex + 1, j, k);
+            });
+          });
+        }
+        else {
+          k();
+        }
+      }
+
+      function sort(f) {
+        fix_structure();
+        history.pushState(get_state(), "", "#" + compressed_data);
+        if (ol_node) {
+          f(0, ol_node.childNodes.length, function() {
+            fix_structure();
+          })
+        }
+      }
+
+      window.onpopstate = function(state) {
+        hide_compare();
+      }
+
+      function new_list() {
+        if (editor) {
+          history.pushState(get_state(), "", "");
+          clear_node(editor);
+          fix_structure();
+        }
+      }
+
+    //--></script>
+  </head>
+  <body onload="watch_editor();">
+    <ul id="toolbar">
+      <li>
+        <a href="javascript:new_list();">
+          <img src="new_file.svg" class="icon" alt="">
+          Start a new list
+        </a>
+      </li><li>
+        <dl class="choice_buttons" id="share">
+          <dt>
+            <img src="share.svg" class="icon" alt="">
+            Share
+          </dt>
+          <dd>
+            <ul>
+              <li><a id="gplus" href="" onclick="javascript:window.open(this.href,
+  '', 'menubar=no,toolbar=no,resizable=yes,scrollbars=yes,height=600,width=600');return false;"><img
+  src="https://www.gstatic.com/images/icons/gplus-16.png" alt="Share on" style="vertical-align: top;"> Google+</a></li>
+              <li><a id="facebook" href="" onclick="javascript:window.open(this.href,
+  '', 'menubar=no,toolbar=no,resizable=yes,scrollbars=yes,height=600,width=600');return false;"><img
+  src="facebook.svg" style="height: 1.5em; vertical-align: top;" alt="Share on"/> Facebook</a></li>
+              <li><a id="tinyurl" href="" onclick="javascript:window.open(this.href,
+  '', 'menubar=no,toolbar=no,resizable=yes,scrollbars=yes,height=600,width=600');return false;">TinyURL</a></li>
+            </ul>
+          </dd>
+        </dl>
+      </li><li>
+        <dl class="choice_buttons">
+          <dt>
+            <img src="sort.svg" class="icon" alt="">
+            Sort
+          </dt>
+          <dd>
+            <ul>
+              <li><a href="javascript:sort(merge_sort);">Merge sort</a>
+              <span class="help">(<a href="http://en.wikipedia.org/wiki/Merge_sort"><img src="http://upload.wikimedia.org/wikipedia/en/8/80/Wikipedia-logo-v2.svg" style="height: 1em;" alt="?" title="Learn about Merge sort on Wikipedia"></a>)</span></li>
+              <li><a href="javascript:sort(quicksort);">Quicksort</a>
+              <span class="help">(<a href="http://en.wikipedia.org/wiki/Quicksort"><img src="http://upload.wikimedia.org/wikipedia/en/8/80/Wikipedia-logo-v2.svg" style="height: 1em;" alt="?" title="Learn about Quicksort on Wikipedia"></a>)</span></li>
+            </ul>
+          </dd>
+        </dl>
+      </li><li>
+        <dl class="choice_buttons" onclick="select(getElementById('insert_link'))">
+          <dt>
+            <img src="link.svg" class="icon" alt="">
+            Insert link or image
+          </dt>
+          <dd>
+            <div id="insert_link" contenteditable="true">
+              <span></span>
+            </div>
+          </dd>
+        </dl>
+      </li><li>
+        <dl class="choice_buttons">
+          <dt>
+            <img src="contribute.svg" class="icon" alt="">
+            Contribute
+          </dt>
+          <dd>
+            <ul>
+              <li><a href="mailto:martinez+listit@nsup.org">martinez+listit@nsup.org</a></li>
+            </ul>
+          </dd>
+        </dl>
+      </li>
+    </ul>
+    <div id="compare" class="hidden">
+      <div id="question">Which one do you prefer?</div>
+      <div><a id="a" href="javascript:compared(false);"></a></div>
+      <div id="or">or</div>
+      <div><a id="b" href="javascript:compared(true);"></a></div>
+    </div>
+    <div id="mover">
+        <div id="mover-up">▲</div>
+      <div id="mover-grip">•</div>
+      <div id="mover-down">▼</div>
+    </div>
+    <div id="editor" contenteditable="true">
+    </div>
+  </body>
+</html>
